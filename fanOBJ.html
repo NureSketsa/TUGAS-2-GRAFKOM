@@ -57,12 +57,55 @@
     </div>
 
     <div class="controls">
+        <h3>Object Controls</h3>
+        <div class="control-group">
+            <label>Translate X:</label>
+            -200 <input id="objTranslateX" type="range" min="-200" max="200" value="0" step="1"/> 200
+        </div>
+        <div class="control-group">
+            <label>Translate Y:</label>
+            -200 <input id="objTranslateY" type="range" min="-200" max="200" value="0" step="1"/> 200
+        </div>
+        <div class="control-group">
+            <label>Translate Z:</label>
+            -200 <input id="objTranslateZ" type="range" min="-200" max="200" value="0" step="1"/> 200
+        </div>
+
+        <div class="control-group">
+            <label>Rotate X (deg):</label>
+            -180 <input id="objRotateX" type="range" min="-180" max="180" value="0" step="1"/> 180
+        </div>
+        <div class="control-group">
+            <label>Rotate Y (deg):</label>
+            -180 <input id="objRotateY" type="range" min="-180" max="180" value="0" step="1"/> 180
+        </div>
+        <div class="control-group">
+            <label>Rotate Z (deg):</label>
+            -180 <input id="objRotateZ" type="range" min="-180" max="180" value="0" step="1"/> 180
+        </div>
+
+        <div class="control-group">
+            <label>Scale:</label>
+            0.01 <input id="objScale" type="range" min="0.01" max="5" value="0.1" step="0.01"/> 5
+        </div>
+
+        <hr/>
+
         <h3>Instructions:</h3>
         <ul>
             <li><strong>Mouse Drag:</strong> Rotate camera around model</li>
             <li><strong>Mouse Wheel:</strong> Zoom in/out</li>
             <li><strong>Sliders:</strong> Precise control of camera angles and zoom</li>
         </ul>
+    </div>
+
+    <div class="controls">
+        <h3>Debug</h3>
+        <div class="control-group">
+            <label>Hover pick mode:</label>
+            <input id="debugToggle" type="checkbox"/> Enable (hover canvas to identify objects)
+        </div>
+        <div id="debugInfo" style="margin-top:8px;">Hover canvas to see object info (enable debug).</div>
     </div>
 
     <canvas id="gl-canvas" width="800" height="600"></canvas>
@@ -72,12 +115,35 @@
     in vec4 aPosition;
     uniform mat4 modelViewMatrix;
     uniform mat4 projectionMatrix;
-    
+    uniform mat4 modelMatrix;
+
     out vec3 vNormal;
-    
+
     void main() {
-        gl_Position = projectionMatrix * modelViewMatrix * aPosition;
-        vNormal = normalize(vec3(modelViewMatrix * aPosition));
+        gl_Position = projectionMatrix * modelViewMatrix * modelMatrix * aPosition;
+        vNormal = normalize(vec3(modelViewMatrix * modelMatrix * aPosition));
+    }
+    </script>
+
+    <script id="pick-vertex-shader" type="x-shader/x-vertex">
+    #version 300 es
+    in vec4 aPosition;
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    uniform mat4 modelMatrix;
+
+    void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * modelMatrix * aPosition;
+    }
+    </script>
+
+    <script id="pick-fragment-shader" type="x-shader/x-fragment">
+    #version 300 es
+    precision mediump float;
+    uniform vec3 uColor;
+    out vec4 fColor;
+    void main() {
+        fColor = vec4(uColor, 1.0);
     }
     </script>
 
@@ -86,12 +152,13 @@
     precision mediump float;
     
     in vec3 vNormal;
+    uniform vec3 uColor;
     out vec4 fColor;
-    
+
     void main() {
         vec3 lightDir = normalize(vec3(0.5, 0.8, 1.0));
         float diff = max(dot(normalize(vNormal), lightDir), 0.3);
-        vec3 color = vec3(0.2, 0.6, 1.0) * diff;
+        vec3 color = uColor * diff;
         fColor = vec4(color, 1.0);
     }
     </script>

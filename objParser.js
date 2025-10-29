@@ -74,6 +74,30 @@ function objToPointsArray(objData) {
     return points;
 }
 
+// Convert parsed obj data into an array of objects each with its own points array
+function objToObjectsPointsArray(objData) {
+    var out = [];
+    if (!objData.objects || objData.objects.length === 0) {
+        // Fallback: single anonymous object using all faces
+        out.push({ name: 'object0', points: objToPointsArray(objData) });
+        return out;
+    }
+
+    for (var i = 0; i < objData.objects.length; i++) {
+        var o = objData.objects[i];
+        var pts = [];
+        for (var j = 0; j < o.faces.length; j++) {
+            var f = o.faces[j];
+            pts.push(objData.vertices[f[0]]);
+            pts.push(objData.vertices[f[1]]);
+            pts.push(objData.vertices[f[2]]);
+        }
+        out.push({ name: o.name || ('object' + i), points: pts });
+    }
+
+    return out;
+}
+
 function scaleOBJ(objData, scaleX, scaleY, scaleZ) {
     var scaled = { 
         vertices: [], 
