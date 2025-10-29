@@ -66,13 +66,25 @@ function parseOBJ(objText) {
 
 function objToPointsArray(objData) {
     var points = [];
+    var normals = [];
     for (var i = 0; i < objData.faces.length; i++) {
         var face = objData.faces[i];
-        points.push(objData.vertices[face[0]]);
-        points.push(objData.vertices[face[1]]);
-        points.push(objData.vertices[face[2]]);
+        var v1 = objData.vertices[face[0]];
+        var v2 = objData.vertices[face[1]];
+        var v3 = objData.vertices[face[2]];
+        points.push(v1);
+        points.push(v2);
+        points.push(v3);
+        // compute flat normal for the face
+        var p1 = vec3(v1[0], v1[1], v1[2]);
+        var p2 = vec3(v2[0], v2[1], v2[2]);
+        var p3 = vec3(v3[0], v3[1], v3[2]);
+        var n = normalize(cross(subtract(p2, p1), subtract(p3, p1)));
+        normals.push(n);
+        normals.push(n);
+        normals.push(n);
     }
-    return points;
+    return { positions: points, normals: normals };
 }
 
 // Convert parsed obj data into an array of objects each with its own points array
@@ -80,20 +92,32 @@ function objToObjectsPointsArray(objData) {
     var out = [];
     if (!objData.objects || objData.objects.length === 0) {
         // Fallback: single anonymous object using all faces
-        out.push({ name: 'object0', points: objToPointsArray(objData) });
+        var pa = objToPointsArray(objData);
+        out.push({ name: 'object0', points: pa.positions, normals: pa.normals });
         return out;
     }
 
     for (var i = 0; i < objData.objects.length; i++) {
         var o = objData.objects[i];
         var pts = [];
+        var norms = [];
         for (var j = 0; j < o.faces.length; j++) {
             var f = o.faces[j];
-            pts.push(objData.vertices[f[0]]);
-            pts.push(objData.vertices[f[1]]);
-            pts.push(objData.vertices[f[2]]);
+            var v1 = objData.vertices[f[0]];
+            var v2 = objData.vertices[f[1]];
+            var v3 = objData.vertices[f[2]];
+            pts.push(v1);
+            pts.push(v2);
+            pts.push(v3);
+            var p1 = vec3(v1[0], v1[1], v1[2]);
+            var p2 = vec3(v2[0], v2[1], v2[2]);
+            var p3 = vec3(v3[0], v3[1], v3[2]);
+            var n = normalize(cross(subtract(p2, p1), subtract(p3, p1)));
+            norms.push(n);
+            norms.push(n);
+            norms.push(n);
         }
-        out.push({ name: o.name || ('object' + i), points: pts });
+        out.push({ name: o.name || ('object' + i), points: pts, normals: norms });
     }
 
     return out;

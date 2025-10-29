@@ -121,20 +121,82 @@
         <div id="debugInfo" style="margin-top:8px;">Hover canvas to see object info (enable debug).</div>
     </div>
 
+    <div class="controls">
+        <h3>Lighting & Texture</h3>
+        <div class="control-group">
+            <label>Enable Lighting:</label>
+            <input id="lightToggle" type="checkbox" checked />
+        </div>
+        <div class="control-group">
+            <label>Light color:</label>
+            <input id="lightColor" type="color" value="#ffffff" />
+            <label style="width:110px">Intensity:</label>
+            <input id="lightIntensity" type="range" min="0" max="5" step="0.1" value="1.0" />
+        </div>
+        <div class="control-group">
+            <label>Light Position X:</label>
+            -500 <input id="lightPosX" type="range" min="-500" max="500" value="50" step="1"/> 500
+        </div>
+        <div class="control-group">
+            <label>Light Position Y:</label>
+            -500 <input id="lightPosY" type="range" min="-500" max="500" value="200" step="1"/> 500
+        </div>
+        <div class="control-group">
+            <label>Light Position Z:</label>
+            -500 <input id="lightPosZ" type="range" min="-500" max="500" value="100" step="1"/> 500
+        </div>
+        <div class="control-group">
+            <label>Ambient:</label>
+            <input id="lightAmbient" type="range" min="0" max="1" step="0.01" value="0.2" />
+            <label>Diffuse:</label>
+            <input id="lightDiffuse" type="range" min="0" max="2" step="0.01" value="1.0" />
+        </div>
+        <div class="control-group">
+            <label>Specular:</label>
+            <input id="lightSpecular" type="range" min="0" max="2" step="0.01" value="0.5" />
+            <label>Shininess:</label>
+            <input id="lightShininess" type="range" min="1" max="128" step="1" value="32" />
+        </div>
+
+        <hr/>
+
+        <div class="control-group">
+            <label>Enable Texture:</label>
+            <input id="texToggle" type="checkbox" />
+        </div>
+        <div class="control-group">
+            <label>Tex Color 1:</label>
+            <input id="texColor1" type="color" value="#ffffff" />
+            <label>Tex Color 2:</label>
+            <input id="texColor2" type="color" value="#d0d0d0" />
+        </div>
+        <div class="control-group">
+            <label>Tex Tiling:</label>
+            <input id="texTiling" type="range" min="1" max="50" step="1" value="8" />
+            <label>Mix:</label>
+            <input id="texMix" type="range" min="0" max="1" step="0.01" value="0.5" />
+        </div>
+    </div>
+
     <canvas id="gl-canvas" width="800" height="600"></canvas>
 
     <script id="vertex-shader" type="x-shader/x-vertex">
     #version 300 es
     in vec4 aPosition;
+    in vec3 aNormal;
     uniform mat4 modelViewMatrix;
     uniform mat4 projectionMatrix;
     uniform mat4 modelMatrix;
+    uniform mat3 normalMatrix;
 
     out vec3 vNormal;
+    out vec3 vPosition;
 
     void main() {
-        gl_Position = projectionMatrix * modelViewMatrix * modelMatrix * aPosition;
-        vNormal = normalize(vec3(modelViewMatrix * modelMatrix * aPosition));
+        vec4 worldPos = modelMatrix * aPosition;
+        vPosition = vec3(worldPos);
+        vNormal = normalize(normalMatrix * aNormal);
+        gl_Position = projectionMatrix * modelViewMatrix * worldPos;
     }
     </script>
 
@@ -163,16 +225,62 @@
     <script id="fragment-shader" type="x-shader/x-fragment">
     #version 300 es
     precision mediump float;
-    
     in vec3 vNormal;
+    in vec3 vPosition;
     uniform vec3 uColor;
+
+    // lighting
+    uniform bool uLightEnabled;
+    uniform vec3 uLightPos;
+    uniform vec3 uLightColor;
+    uniform float uLightIntensity;
+    uniform float uAmbientFactor;
+    uniform float uDiffuseFactor;
+    uniform float uSpecularFactor;
+    uniform float uShininess;
+
+    // texture (procedural checker)
+    uniform bool uUseTexture;
+    uniform vec3 uTexColor1;
+    uniform vec3 uTexColor2;
+    uniform float uTexTiling;
+    uniform float uTexMix;
+
     out vec4 fColor;
 
+    vec3 computeChecker(vec3 pos) {
+        vec2 uv = pos.xz * uTexTiling;
+        float cx = floor(uv.x);
+        float cy = floor(uv.y);
+        float checker = mod(cx + cy, 2.0);
+        return mix(uTexColor1, uTexColor2, checker);
+    }
+
     void main() {
-        vec3 lightDir = normalize(vec3(0.5, 0.8, 1.0));
-        float diff = max(dot(normalize(vNormal), lightDir), 0.3);
-        vec3 color = uColor * diff;
-        fColor = vec4(color, 1.0);
+        vec3 N = normalize(vNormal);
+        vec3 viewDir = normalize(-vPosition);
+
+        vec3 ambient = uAmbientFactor * uColor;
+        vec3 result = ambient;
+
+        if (uLightEnabled) {
+            vec3 L = normalize(uLightPos - vPosition);
+            float diff = max(dot(N, L), 0.0);
+            vec3 R = reflect(-L, N);
+            float spec = 0.0;
+            if (diff > 0.0) spec = pow(max(dot(R, viewDir), 0.0), uShininess);
+            vec3 diffuse = uDiffuseFactor * diff * uColor * uLightColor;
+            vec3 specular = uSpecularFactor * spec * uLightColor;
+            result += uLightIntensity * (diffuse + specular);
+        }
+
+        vec3 baseColor = result;
+        if (uUseTexture) {
+            vec3 tex = computeChecker(vPosition);
+            baseColor = mix(baseColor, tex, uTexMix);
+        }
+
+        fColor = vec4(baseColor, 1.0);
     }
     </script>
 

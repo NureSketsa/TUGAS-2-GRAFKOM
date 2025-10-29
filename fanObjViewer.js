@@ -7,9 +7,16 @@ var modelMatrix, modelMatrixLoc;
 var pointsArray = [];
 var objectsData = []; // array of {name, points}
 var objectBuffers = [];
+var objectPositionBuffers = [];
+var objectNormalBuffers = [];
 var objectVertexCounts = [];
 var objectColors = [];
 var uColorLoc;
+var normalMatrixLoc = null;
+// lighting/texture uniform locations
+var uLightEnabledLoc, uLightPosLoc, uLightColorLoc, uLightIntensityLoc;
+var uAmbientLoc, uDiffuseLoc, uSpecularLoc, uShininessLoc;
+var uUseTextureLoc, uTexColor1Loc, uTexColor2Loc, uTexTilingLoc, uTexMixLoc;
 var objectPickColors = [];
 var pickProgram = null;
 var pickFramebuffer = null;
@@ -25,6 +32,22 @@ var isWingRotating = false;
 var lastFrameTime = 0;
 var wingCenter = vec3(0, 0, 0);  // will be computed from obj 18
 var wingObjects = [19, 20, 21];  // wing object indices
+
+// scene lighting / texture state (JS side)
+var sceneLightEnabled = true;
+var sceneLightColor = [1.0, 1.0, 1.0];
+var sceneLightPos = vec3(50, 200, 100);
+var sceneLightIntensity = 1.0;
+var sceneAmbient = 0.2;
+var sceneDiffuse = 1.0;
+var sceneSpecular = 0.5;
+var sceneShininess = 32.0;
+
+var sceneUseTexture = false;
+var sceneTexColor1 = [1.0, 1.0, 1.0];
+var sceneTexColor2 = [0.82, 0.82, 0.82];
+var sceneTexTiling = 8.0;
+var sceneTexMix = 0.5;
 
 function computeObjectCenter(objectIndex) {
     if (!objectsData || !objectsData[objectIndex]) return vec3(0, 0, 0);
@@ -78,7 +101,8 @@ function loadOBJFile(filename) {
             
             // colors based on part groups
             var lightBlue = [0.6, 0.8, 1.0];
-            var grey = [0.7, 0.7, 0.7];
+            // make default grey very light for better similarity with real object
+            var grey = [0.95, 0.95, 0.95];
             
             // map colors to object indices
             objectColors = [];
@@ -119,19 +143,51 @@ function loadOBJFile(filename) {
 }
 
 function setupBuffers() {
-    // create a buffer per object and upload its points
-    objectBuffers = [];
-    var vPosition = gl.getAttribLocation(program, "aPosition");
+    // create position and normal buffers per object and upload data
+    objectPositionBuffers = [];
+    objectNormalBuffers = [];
+
     for (var i = 0; i < objectsData.length; i++) {
-        var buf = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        // positions
+        var posBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
         gl.bufferData(gl.ARRAY_BUFFER, flatten(objectsData[i].points), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
-        gl.enableVertexAttribArray(vPosition);
-        objectBuffers.push(buf);
+        objectPositionBuffers.push(posBuf);
+
+        // normals (may be missing) - fallback to zero normals
+        var norms = objectsData[i].normals || [];
+        if (!norms || norms.length === 0) {
+            // create zero normals
+            norms = [];
+            for (var k = 0; k < objectsData[i].points.length; k++) norms.push(vec3(0,0,1));
+        }
+        var normBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, normBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(norms), gl.STATIC_DRAW);
+        objectNormalBuffers.push(normBuf);
     }
 
+    // Uniform locations
     uColorLoc = gl.getUniformLocation(program, "uColor");
+    normalMatrixLoc = gl.getUniformLocation(program, "normalMatrix");
+    // lighting uniforms
+    uLightEnabledLoc = gl.getUniformLocation(program, 'uLightEnabled');
+    uLightPosLoc = gl.getUniformLocation(program, 'uLightPos');
+    uLightColorLoc = gl.getUniformLocation(program, 'uLightColor');
+    uLightIntensityLoc = gl.getUniformLocation(program, 'uLightIntensity');
+    uAmbientLoc = gl.getUniformLocation(program, 'uAmbientFactor');
+    uDiffuseLoc = gl.getUniformLocation(program, 'uDiffuseFactor');
+    uSpecularLoc = gl.getUniformLocation(program, 'uSpecularFactor');
+    uShininessLoc = gl.getUniformLocation(program, 'uShininess');
+    // texture uniforms
+    uUseTextureLoc = gl.getUniformLocation(program, 'uUseTexture');
+    uTexColor1Loc = gl.getUniformLocation(program, 'uTexColor1');
+    uTexColor2Loc = gl.getUniformLocation(program, 'uTexColor2');
+    uTexTilingLoc = gl.getUniformLocation(program, 'uTexTiling');
+    uTexMixLoc = gl.getUniformLocation(program, 'uTexMix');
+
+    // make pick code still work using position buffers reference
+    objectBuffers = objectPositionBuffers.slice();
 }
 
 function createPickingFramebuffer(width, height) {
@@ -380,6 +436,66 @@ window.onload = function init() {
         }
     };
 
+    // Lighting & texture controls wiring
+    var lightToggle = document.getElementById('lightToggle');
+    var lightColorInput = document.getElementById('lightColor');
+    var lightPosX = document.getElementById('lightPosX');
+    var lightPosY = document.getElementById('lightPosY');
+    var lightPosZ = document.getElementById('lightPosZ');
+    var lightIntensity = document.getElementById('lightIntensity');
+    var lightAmbient = document.getElementById('lightAmbient');
+    var lightDiffuse = document.getElementById('lightDiffuse');
+    var lightSpecular = document.getElementById('lightSpecular');
+    var lightShininess = document.getElementById('lightShininess');
+
+    var texToggle = document.getElementById('texToggle');
+    var texColor1 = document.getElementById('texColor1');
+    var texColor2 = document.getElementById('texColor2');
+    var texTiling = document.getElementById('texTiling');
+    var texMix = document.getElementById('texMix');
+
+    function colorHexToVec3(hex) {
+        var c = hex.replace('#','');
+        var r = parseInt(c.substring(0,2),16)/255; 
+        var g = parseInt(c.substring(2,4),16)/255; 
+        var b = parseInt(c.substring(4,6),16)/255; 
+        return [r,g,b];
+    }
+
+    // initialize scene vars from controls
+    sceneLightEnabled = lightToggle.checked;
+    sceneLightColor = colorHexToVec3(lightColorInput.value);
+    sceneLightPos = vec3(parseFloat(lightPosX.value), parseFloat(lightPosY.value), parseFloat(lightPosZ.value));
+    sceneLightIntensity = parseFloat(lightIntensity.value);
+    sceneAmbient = parseFloat(lightAmbient.value);
+    sceneDiffuse = parseFloat(lightDiffuse.value);
+    sceneSpecular = parseFloat(lightSpecular.value);
+    sceneShininess = parseFloat(lightShininess.value);
+
+    sceneUseTexture = texToggle.checked;
+    sceneTexColor1 = colorHexToVec3(texColor1.value);
+    sceneTexColor2 = colorHexToVec3(texColor2.value);
+    sceneTexTiling = parseFloat(texTiling.value);
+    sceneTexMix = parseFloat(texMix.value);
+
+    // update JS state on input changes
+    lightToggle.onchange = function(e){ sceneLightEnabled = e.target.checked; };
+    lightColorInput.oninput = function(e){ sceneLightColor = colorHexToVec3(e.target.value); };
+    lightPosX.oninput = lightPosY.oninput = lightPosZ.oninput = function(){
+        sceneLightPos = vec3(parseFloat(lightPosX.value), parseFloat(lightPosY.value), parseFloat(lightPosZ.value));
+    };
+    lightIntensity.oninput = function(e){ sceneLightIntensity = parseFloat(e.target.value); };
+    lightAmbient.oninput = function(e){ sceneAmbient = parseFloat(e.target.value); };
+    lightDiffuse.oninput = function(e){ sceneDiffuse = parseFloat(e.target.value); };
+    lightSpecular.oninput = function(e){ sceneSpecular = parseFloat(e.target.value); };
+    lightShininess.oninput = function(e){ sceneShininess = parseFloat(e.target.value); };
+
+    texToggle.onchange = function(e){ sceneUseTexture = e.target.checked; };
+    texColor1.oninput = function(e){ sceneTexColor1 = colorHexToVec3(e.target.value); };
+    texColor2.oninput = function(e){ sceneTexColor2 = colorHexToVec3(e.target.value); };
+    texTiling.oninput = function(e){ sceneTexTiling = parseFloat(e.target.value); };
+    texMix.oninput = function(e){ sceneTexMix = parseFloat(e.target.value); };
+
     // Load the OBJ file
     loadOBJFile('./fan.obj'); // Use explicit relative path
 };
@@ -406,11 +522,17 @@ function render(timestamp) {
         modelMatrix = mult(T, mult(RZ, mult(RY, mult(RX, S))));
 
         // Draw each object
-        for (var i = 0; i < objectBuffers.length; i++) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, objectBuffers[i]);
-            var vPosition = gl.getAttribLocation(program, "aPosition");
+        var vPosition = gl.getAttribLocation(program, "aPosition");
+        var vNormal = gl.getAttribLocation(program, "aNormal");
+        for (var i = 0; i < objectPositionBuffers.length; i++) {
+            // bind position
+            gl.bindBuffer(gl.ARRAY_BUFFER, objectPositionBuffers[i]);
             gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
             gl.enableVertexAttribArray(vPosition);
+            // bind normal
+            gl.bindBuffer(gl.ARRAY_BUFFER, objectNormalBuffers[i]);
+            gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(vNormal);
 
             var objMatrix = modelMatrix;
             
@@ -428,11 +550,34 @@ function render(timestamp) {
                 objMatrix = mult(modelMatrix, wingTransform);
             }
 
-            if(modelMatrixLoc) gl.uniformMatrix4fv(modelMatrixLoc, false, flatten(objMatrix));
-            
+            if (modelMatrixLoc) gl.uniformMatrix4fv(modelMatrixLoc, false, flatten(objMatrix));
+
+            // compute and set normal matrix
+            if (normalMatrixLoc) {
+                var nm = normalMatrix(mult(modelViewMatrix, objMatrix));
+                gl.uniformMatrix3fv(normalMatrixLoc, false, flatten(nm));
+            }
+
+            // set color
             if (uColorLoc && objectColors[i]) {
                 gl.uniform3fv(uColorLoc, new Float32Array(objectColors[i]));
             }
+
+            // set lighting/texture uniforms per-frame
+            if (uLightEnabledLoc) gl.uniform1i(uLightEnabledLoc, sceneLightEnabled ? 1 : 0);
+            if (uLightPosLoc) gl.uniform3fv(uLightPosLoc, new Float32Array(sceneLightPos));
+            if (uLightColorLoc) gl.uniform3fv(uLightColorLoc, new Float32Array(sceneLightColor));
+            if (uLightIntensityLoc) gl.uniform1f(uLightIntensityLoc, sceneLightIntensity);
+            if (uAmbientLoc) gl.uniform1f(uAmbientLoc, sceneAmbient);
+            if (uDiffuseLoc) gl.uniform1f(uDiffuseLoc, sceneDiffuse);
+            if (uSpecularLoc) gl.uniform1f(uSpecularLoc, sceneSpecular);
+            if (uShininessLoc) gl.uniform1f(uShininessLoc, sceneShininess);
+
+            if (uUseTextureLoc) gl.uniform1i(uUseTextureLoc, sceneUseTexture ? 1 : 0);
+            if (uTexColor1Loc) gl.uniform3fv(uTexColor1Loc, new Float32Array(sceneTexColor1));
+            if (uTexColor2Loc) gl.uniform3fv(uTexColor2Loc, new Float32Array(sceneTexColor2));
+            if (uTexTilingLoc) gl.uniform1f(uTexTilingLoc, sceneTexTiling);
+            if (uTexMixLoc) gl.uniform1f(uTexMixLoc, sceneTexMix);
             var count = objectVertexCounts[i] || 0;
             if (count > 0) gl.drawArrays(gl.TRIANGLES, 0, count);
         }
