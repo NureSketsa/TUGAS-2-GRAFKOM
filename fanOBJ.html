@@ -100,6 +100,19 @@
     </div>
 
     <div class="controls">
+        <h3>Fan Animation</h3>
+        <div class="control-group">
+            <label>Wing rotation:</label>
+            <input id="wingRotateToggle" type="checkbox"/> Animate
+            <input id="wingRotateSpeed" type="range" min="1" max="360" value="90" step="1" style="width:200px"/> Speed (deg/s)
+        </div>
+        <div class="control-group">
+            <label>Manual wing angle:</label>
+            -180° <input id="wingRotateAngle" type="range" min="-180" max="180" value="0" step="1"/> 180°
+        </div>
+    </div>
+
+    <div class="controls">
         <h3>Debug</h3>
         <div class="control-group">
             <label>Hover pick mode:</label>

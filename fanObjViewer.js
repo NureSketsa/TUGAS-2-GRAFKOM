@@ -18,6 +18,27 @@ var pickDepthBuffer = null;
 var pickLocations = {};
 var debugInfoDiv = null;
 
+// Wing rotation state
+var wingRotationAngle = 0;
+var wingRotateSpeed = 90;  // degrees per second
+var isWingRotating = false;
+var lastFrameTime = 0;
+var wingCenter = vec3(0, 0, 0);  // will be computed from obj 18
+var wingObjects = [19, 20, 21];  // wing object indices
+
+function computeObjectCenter(objectIndex) {
+    if (!objectsData || !objectsData[objectIndex]) return vec3(0, 0, 0);
+    var points = objectsData[objectIndex].points;
+    var sum = vec3(0, 0, 0);
+    var count = 0;
+    for (var i = 0; i < points.length; i++) {
+        sum = add(sum, vec3(points[i][0], points[i][1], points[i][2]));
+        count++;
+    }
+    if (count === 0) return vec3(0, 0, 0);
+    return vec3(sum[0]/count, sum[1]/count, sum[2]/count);
+}
+
 // Camera control variables
 var cameraRotationX = 0;
 var cameraRotationY = 0;
@@ -40,36 +61,51 @@ var objRotateZ = 0;
 var objScale = 0.1;
 
 function loadOBJFile(filename) {
+    console.log('Loading OBJ file:', filename);
     fetch(filename)
-        .then(response => response.text())
+        .then(response => {
+            console.log('OBJ file response status:', response.status);
+            return response.text();
+        })
         .then(text => {
+            console.log('OBJ file content length:', text.length);
             objData = parseOBJ(text);
+            console.log('Parsed OBJ data:', objData);
             objData = scaleOBJ(objData, 0.1, 0.1, 0.1); // Scale down
             // build per-object points arrays
             objectsData = objToObjectsPointsArray(objData);
-            // default colors (cycle if more objects)
-            var defaultColors = [
-                [0.8, 0.2, 0.2], // red
-                [0.2, 0.8, 0.2], // green
-                [0.2, 0.4, 0.8], // blue
-                [0.9, 0.7, 0.2], // yellow
-                [0.7, 0.3, 0.8], // purple
-                [0.3, 0.7, 0.7]  // teal
-            ];
+            console.log('Object data arrays:', objectsData);
+            
+            // colors based on part groups
+            var lightBlue = [0.6, 0.8, 1.0];
+            var grey = [0.7, 0.7, 0.7];
+            
+            // map colors to object indices
             objectColors = [];
+            objectPickColors = [];
+            var lightBlueIndices = [13,14,15,16,17,19,20,21];
+            
             for (var i = 0; i < objectsData.length; i++) {
                 objectVertexCounts[i] = objectsData[i].points.length;
-                objectColors[i] = defaultColors[i % defaultColors.length];
-                    // pick color encode index+1 into RGB
-                    var id = i + 1; // 0 reserved for background
-                    var r = id & 0xFF;
-                    var g = (id >> 8) & 0xFF;
-                    var b = (id >> 16) & 0xFF;
-                    objectPickColors[i] = [r / 255.0, g / 255.0, b / 255.0];
+                // if index is in lightBlueIndices, use lightBlue, else grey
+                objectColors[i] = lightBlueIndices.includes(i) ? lightBlue : grey;
+                
+                // pick color encode index+1 into RGB
+                var id = i + 1; // 0 reserved for background
+                var r = id & 0xFF;
+                var g = (id >> 8) & 0xFF;
+                var b = (id >> 16) & 0xFF;
+                objectPickColors[i] = [r / 255.0, g / 255.0, b / 255.0];
             }
+
+            // Compute wing rotation center from object 18
+            wingCenter = computeObjectCenter(18);
+            
             // total vertex count (for a quick check)
             numVertices = 0;
-            for (var k = 0; k < objectVertexCounts.length; k++) numVertices += objectVertexCounts[k];
+            for (var k = 0; k < objectVertexCounts.length; k++) {
+                numVertices += objectVertexCounts[k];
+            }
 
             console.log('Loaded objects:', objectsData.length);
 
@@ -325,30 +361,75 @@ window.onload = function init() {
         objScale = parseFloat(e.target.value);
     };
 
+    // Wing rotation controls
+    document.getElementById("wingRotateToggle").onchange = function(e) {
+        isWingRotating = e.target.checked;
+        // Reset time when starting animation
+        if (isWingRotating) lastFrameTime = performance.now();
+        // Enable/disable manual control based on animation state
+        document.getElementById("wingRotateAngle").disabled = isWingRotating;
+    };
+
+    document.getElementById("wingRotateSpeed").oninput = function(e) {
+        wingRotateSpeed = parseFloat(e.target.value);
+    };
+
+    document.getElementById("wingRotateAngle").oninput = function(e) {
+        if (!isWingRotating) {  // only allow manual control when not animating
+            wingRotationAngle = parseFloat(e.target.value);
+        }
+    };
+
     // Load the OBJ file
-    loadOBJFile('fan.obj');
+    loadOBJFile('./fan.obj'); // Use explicit relative path
 };
 
-function render() {
+function render(timestamp) {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     
     if (numVertices > 0) {
         updateCamera();
-        // Build model matrix from object transform state: T * Rz * Ry * Rx * S
+
+        // Update wing rotation if animation is on
+        if (isWingRotating && lastFrameTime) {
+            var deltaTime = (timestamp - lastFrameTime) / 1000.0; // seconds
+            wingRotationAngle += wingRotateSpeed * deltaTime;
+        }
+        lastFrameTime = timestamp;
+
+        // Build base model matrix from object transform state: T * Rz * Ry * Rx * S
         var S = scale(objScale, objScale, objScale);
         var RX = rotateX(objRotateX);
         var RY = rotateY(objRotateY);
         var RZ = rotateZ(objRotateZ);
         var T = translate(objTranslate[0], objTranslate[1], objTranslate[2]);
         modelMatrix = mult(T, mult(RZ, mult(RY, mult(RX, S))));
-        if(modelMatrixLoc) gl.uniformMatrix4fv(modelMatrixLoc, false, flatten(modelMatrix));
-        // Draw each object with its assigned color
+
+        // Draw each object
         for (var i = 0; i < objectBuffers.length; i++) {
             gl.bindBuffer(gl.ARRAY_BUFFER, objectBuffers[i]);
             var vPosition = gl.getAttribLocation(program, "aPosition");
             gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
             gl.enableVertexAttribArray(vPosition);
 
+            var objMatrix = modelMatrix;
+            
+            // If this is a wing object, apply additional rotation around wingCenter
+            if (wingObjects.includes(i)) {
+                // 1. Translate to origin
+                var negCenter = translate(-wingCenter[0], -wingCenter[1], -wingCenter[2]);
+                // 2. Rotate
+                var wingRot = rotateY(wingRotationAngle);
+                // 3. Translate back
+                var posCenter = translate(wingCenter[0], wingCenter[1], wingCenter[2]);
+                
+                // Combine: modelMatrix * (posCenter * wingRot * negCenter)
+                var wingTransform = mult(posCenter, mult(wingRot, negCenter));
+                objMatrix = mult(modelMatrix, wingTransform);
+            }
+
+            if(modelMatrixLoc) gl.uniformMatrix4fv(modelMatrixLoc, false, flatten(objMatrix));
+            
             if (uColorLoc && objectColors[i]) {
                 gl.uniform3fv(uColorLoc, new Float32Array(objectColors[i]));
             }

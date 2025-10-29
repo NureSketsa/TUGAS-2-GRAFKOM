@@ -2,6 +2,7 @@
 
 function parseOBJ(objText) {
     var lines = objText.split('\n');
+    console.log('Parsing OBJ file with', lines.length, 'lines');
     var vertices = [];
     var faces = [];
     var currentObject = null;
