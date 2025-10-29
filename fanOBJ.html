@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Fan OBJ Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        canvas {
+            border: 2px solid #333;
+            background-color: white;
+            display: block;
+            margin: 20px 0;
+        }
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            width: 150px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 300px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <h1>Fan 3D Model Viewer</h1>
+    <h2>Interactive OBJ Viewer</h2>
+    
+    <div class="controls">
+        <h3>Camera Controls</h3>
+        <div class="control-group">
+            <label>Rotate X (Up/Down):</label>
+            -90° <input id="sliderRotateX" type="range" min="-90" max="90" value="0" step="1"/> 90°
+        </div>
+        <div class="control-group">
+            <label>Rotate Y (Left/Right):</label>
+            -180° <input id="sliderRotateY" type="range" min="-180" max="180" value="0" step="1"/> 180°
+        </div>
+        <div class="control-group">
+            <label>Zoom:</label>
+            50 <input id="sliderZoom" type="range" min="50" max="500" value="200" step="10"/> 500
+        </div>
+    </div>
+
+    <div class="controls">
+        <h3>Instructions:</h3>
+        <ul>
+            <li><strong>Mouse Drag:</strong> Rotate camera around model</li>
+            <li><strong>Mouse Wheel:</strong> Zoom in/out</li>
+            <li><strong>Sliders:</strong> Precise control of camera angles and zoom</li>
+        </ul>
+    </div>
+
+    <canvas id="gl-canvas" width="800" height="600"></canvas>
+
+    <script id="vertex-shader" type="x-shader/x-vertex">
+    #version 300 es
+    in vec4 aPosition;
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    
+    out vec3 vNormal;
+    
+    void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * aPosition;
+        vNormal = normalize(vec3(modelViewMatrix * aPosition));
+    }
+    </script>
+
+    <script id="fragment-shader" type="x-shader/x-fragment">
+    #version 300 es
+    precision mediump float;
+    
+    in vec3 vNormal;
+    out vec4 fColor;
+    
+    void main() {
+        vec3 lightDir = normalize(vec3(0.5, 0.8, 1.0));
+        float diff = max(dot(normalize(vNormal), lightDir), 0.3);
+        vec3 color = vec3(0.2, 0.6, 1.0) * diff;
+        fColor = vec4(color, 1.0);
+    }
+    </script>
+
+    <script src="MVnew.js"></script>
+    <script src="InitShaders.js"></script>
+    <script src="objParser.js"></script>
+    <script src="fanObjViewer.js"></script>
+</body>
+</html>
