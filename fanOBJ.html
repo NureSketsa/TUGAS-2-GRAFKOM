@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Fan OBJ Viewer</title>
     <style>
-        body {
+        <!-- body {
             font-family: Arial, sans-serif;
             padding: 20px;
             background-color: #f0f0f0;
@@ -33,12 +33,101 @@
         input[type="range"] {
             width: 300px;
             vertical-align: middle;
+        } -->
+        body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f0f0f0;
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+        overflow: hidden;
+        }
+
+        /* Panel kiri untuk kontrol */
+        .sidebar {
+        width: 1000px;
+        background: #fff;
+        padding: 15px;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        overflow-y: auto;
+        }
+
+        /* Area kanan untuk canvas */
+        .main {
+        flex: 1;
+        padding: 20px;
+        overflow: auto;
+        }
+
+        canvas {
+        border: 2px solid #333;
+        background-color: white;
+        display: block;
+        margin: 20px auto;
+        }
+
+        .controls {
+        background: white;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .control-group {
+        margin: 10px 0;
+        }
+
+        label {
+        display: inline-block;
+        width: 150px;
+        font-weight: bold;
+        }
+
+        input[type="range"] {
+        width: 180px;
+        vertical-align: middle;
+        }
+
+        h1, h2, h3, ul {
+        margin: 10px 0;
+        }
+
+        hr {
+        margin: 15px 0;
         }
     </style>
 </head>
 <body>
-    <h1>Fan 3D Model Viewer</h1>
-    <h2>Interactive OBJ Viewer</h2>
+
+    <div class="sidebar">
+    <!-- <h1>Fan 3D Model Viewer</h1>
+    <h2>Interactive OBJ Viewer</h2> -->
+    <h1>Tugas 2 Kelompok 18</h1>    
+    <h2>Kipas Angin Berdiri - Punya karyawan TC</h2>
+    <h3>Anggota:
+        <ul>
+            <li>Bayu Nismara Nagatama - 5025231152</li>
+            <li>Muhammmad Daffa Nurrahman - 5025231208</li>
+        </ul>
+    </h3>
+    <h3>
+        Tree hubungan antar objek: <br>
+        stand <br>
+        └── base<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── frame<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── ring<br>
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── blades
+
+    </h3>
+    <h3>
+        Pembagian Tugas: <br>
+        Bayu: <br>Mengambil foto dan video objek asli.<br> Membuat halaman HTML.<br>Implementasi WebGL untuk modelling detail objek agar mirip dengan aslinya.<br>
+
+        Daffa: <br>Mendesain tree hubungan antar objek (hierarchical modelling). <br>Implementasi WebGL untuk struktur utama, hierarchical modelling, dan logika animasi.
+    </h3>
     
     <div class="controls">
         <h3>Camera Controls</h3>
@@ -120,7 +209,7 @@
         </div>
         <div id="debugInfo" style="margin-top:8px;">Hover canvas to see object info (enable debug).</div>
     </div>
-
+    
     <div class="controls">
         <h3>Lighting & Texture</h3>
         <div class="control-group">
@@ -130,9 +219,10 @@
         <div class="control-group">
             <label>Light color:</label>
             <input id="lightColor" type="color" value="#ffffff" />
-            <label style="width:110px">Intensity:</label>
-            <input id="lightIntensity" type="range" min="0" max="5" step="0.1" value="1.0" />
         </div>
+        <div class="control-group">
+            <label>Intensity:</label>
+            <input id="lightIntensity" type="range" min="0" max="5" step="0.1" value="1.0" /></div>
         <div class="control-group">
             <label>Light Position X:</label>
             -500 <input id="lightPosX" type="range" min="-500" max="500" value="50" step="1"/> 500
@@ -148,15 +238,20 @@
         <div class="control-group">
             <label>Ambient:</label>
             <input id="lightAmbient" type="range" min="0" max="1" step="0.01" value="0.2" />
+        </div>
+        <div class="control-group">
             <label>Diffuse:</label>
             <input id="lightDiffuse" type="range" min="0" max="2" step="0.01" value="1.0" />
         </div>
         <div class="control-group">
             <label>Specular:</label>
             <input id="lightSpecular" type="range" min="0" max="2" step="0.01" value="0.5" />
+        </div>
+        <div class="control-group">
             <label>Shininess:</label>
             <input id="lightShininess" type="range" min="1" max="128" step="1" value="32" />
         </div>
+        
 
         <hr/>
 
@@ -167,20 +262,26 @@
         <div class="control-group">
             <label>Tex Color 1:</label>
             <input id="texColor1" type="color" value="#ffffff" />
+        </div>
+        <div class="control-group">
             <label>Tex Color 2:</label>
             <input id="texColor2" type="color" value="#d0d0d0" />
         </div>
         <div class="control-group">
             <label>Tex Tiling:</label>
             <input id="texTiling" type="range" min="1" max="50" step="1" value="8" />
+        </div>
+        <div class="control-group">
             <label>Mix:</label>
             <input id="texMix" type="range" min="0" max="1" step="0.01" value="0.5" />
         </div>
     </div>
-
+    </div>
+    <div class="main">
     <canvas id="gl-canvas" width="800" height="600"></canvas>
-
-    <script id="vertex-shader" type="x-shader/x-vertex">
+    <img src="fotokipas.jpg" style="width:300px; height:auto;">
+    </div>
+    <script id="vertex-shader" type="x-shader/x-vertex">        
     #version 300 es
     in vec4 aPosition;
     in vec3 aNormal;
