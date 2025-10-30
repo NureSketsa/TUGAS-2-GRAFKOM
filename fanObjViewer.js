@@ -24,6 +24,7 @@ var pickTexture = null;
 var pickDepthBuffer = null;
 var pickLocations = {};
 var debugInfoDiv = null;
+var vPositionLoc = -1, vNormalLoc = -1; // cached attribute locations for main program
 
 // Wing rotation state
 var wingRotationAngle = 0;
@@ -225,14 +226,9 @@ function pickAt(x, y) {
     // ensure camera/model matrices are up-to-date
     updateCamera();
     // Build model matrix from object transform state used for picking
-    var S = scale(objScale, objScale, objScale);
-    var RX = rotateX(objRotateX);
-    var RY = rotateY(objRotateY);
-    var RZ = rotateZ(objRotateZ);
-    var T = translate(objTranslate[0], objTranslate[1], objTranslate[2]);
-    modelMatrix = mult(T, mult(RZ, mult(RY, mult(RX, S))));
+    modelMatrix = buildModelMatrix();
 
-    // bind framebuffer and viewport
+    // bind framebuffer and viewport, clear
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0,0,0,0);
@@ -240,26 +236,17 @@ function pickAt(x, y) {
 
     gl.useProgram(pickProgram);
 
-    // set projection and modelView into pick program
-    var pickMVLoc = gl.getUniformLocation(pickProgram, 'modelViewMatrix');
-    var pickProjLoc = gl.getUniformLocation(pickProgram, 'projectionMatrix');
-    var pickModelLoc = gl.getUniformLocation(pickProgram, 'modelMatrix');
-    var pickUColorLoc = gl.getUniformLocation(pickProgram, 'uColor');
-
-    if (pickMVLoc) gl.uniformMatrix4fv(pickMVLoc, false, flatten(modelViewMatrix));
-    if (pickProjLoc) gl.uniformMatrix4fv(pickProjLoc, false, flatten(projectionMatrix));
-
-    var pickAPos = gl.getAttribLocation(pickProgram, 'aPosition');
+    // set projection and modelView into pick program (cached locations)
+    if (pickLocations.modelViewMatrix) gl.uniformMatrix4fv(pickLocations.modelViewMatrix, false, flatten(modelViewMatrix));
+    if (pickLocations.projectionMatrix) gl.uniformMatrix4fv(pickLocations.projectionMatrix, false, flatten(projectionMatrix));
 
     // draw each object with its pick color
     for (var i = 0; i < objectBuffers.length; i++) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, objectBuffers[i]);
-        gl.vertexAttribPointer(pickAPos, 4, gl.FLOAT, false, 0, 0);
-        gl.enableVertexAttribArray(pickAPos);
+        bindAttr(objectBuffers[i], pickLocations.aPosition, 4);
 
-        if (pickModelLoc) gl.uniformMatrix4fv(pickModelLoc, false, flatten(modelMatrix));
+        if (pickLocations.modelMatrix) gl.uniformMatrix4fv(pickLocations.modelMatrix, false, flatten(modelMatrix));
         var pickColor = objectPickColors[i] || [0,0,0];
-        if (pickUColorLoc) gl.uniform3fv(pickUColorLoc, new Float32Array(pickColor));
+        if (pickLocations.uColor) gl.uniform3fv(pickLocations.uColor, new Float32Array(pickColor));
 
         var count = objectVertexCounts[i] || 0;
         if (count > 0) gl.drawArrays(gl.TRIANGLES, 0, count);
@@ -310,6 +297,10 @@ window.onload = function init() {
     program = initShaders(gl, "vertex-shader", "fragment-shader");
     gl.useProgram(program);
 
+    // cache frequently-used attribute locations
+    vPositionLoc = gl.getAttribLocation(program, "aPosition");
+    vNormalLoc = gl.getAttribLocation(program, "aNormal");
+
     modelViewMatrixLoc = gl.getUniformLocation(program, "modelViewMatrix");
     projectionMatrixLoc = gl.getUniformLocation(program, "projectionMatrix");
     modelMatrixLoc = gl.getUniformLocation(program, "modelMatrix");
@@ -322,6 +313,12 @@ window.onload = function init() {
 
     // init pick shader program
     pickProgram = initShaders(gl, "pick-vertex-shader", "pick-fragment-shader");
+    // cache pick program uniform/attrib locations to avoid repeated lookups
+    pickLocations.modelViewMatrix = gl.getUniformLocation(pickProgram, 'modelViewMatrix');
+    pickLocations.projectionMatrix = gl.getUniformLocation(pickProgram, 'projectionMatrix');
+    pickLocations.modelMatrix = gl.getUniformLocation(pickProgram, 'modelMatrix');
+    pickLocations.uColor = gl.getUniformLocation(pickProgram, 'uColor');
+    pickLocations.aPosition = gl.getAttribLocation(pickProgram, 'aPosition');
     // prepare picking framebuffer/texture
     createPickingFramebuffer(canvas.width, canvas.height);
 
@@ -448,28 +445,18 @@ function render(timestamp) {
         }
         lastFrameTime = timestamp;
 
-        // Build base model matrix from object transform state: T * Rz * Ry * Rx * S
-        var S = scale(objScale, objScale, objScale);
-        var RX = rotateX(objRotateX);
-        var RY = rotateY(objRotateY);
-        var RZ = rotateZ(objRotateZ);
-        var T = translate(objTranslate[0], objTranslate[1], objTranslate[2]);
-        modelMatrix = mult(T, mult(RZ, mult(RY, mult(RX, S))));
+    // Build base model matrix from object transform state
+    var baseModel = buildModelMatrix();
 
         // Draw each object
         var vPosition = gl.getAttribLocation(program, "aPosition");
         var vNormal = gl.getAttribLocation(program, "aNormal");
         for (var i = 0; i < objectPositionBuffers.length; i++) {
-            // bind position
-            gl.bindBuffer(gl.ARRAY_BUFFER, objectPositionBuffers[i]);
-            gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(vPosition);
-            // bind normal
-            gl.bindBuffer(gl.ARRAY_BUFFER, objectNormalBuffers[i]);
-            gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(vNormal);
+                // bind position/normal using cached attribute locations
+                bindAttr(objectPositionBuffers[i], vPositionLoc, 4);
+                bindAttr(objectNormalBuffers[i], vNormalLoc, 3);
 
-            var objMatrix = modelMatrix;
+            var objMatrix = baseModel;
             
             // If this is a wing object, apply additional rotation around wingCenter
             if (wingObjects.includes(i)) {
@@ -482,7 +469,7 @@ function render(timestamp) {
                 
                 // Combine: modelMatrix * (posCenter * wingRot * negCenter)
                 var wingTransform = mult(posCenter, mult(wingRot, negCenter));
-                objMatrix = mult(modelMatrix, wingTransform);
+                objMatrix = mult(baseModel, wingTransform);
             }
 
             if (modelMatrixLoc) gl.uniformMatrix4fv(modelMatrixLoc, false, flatten(objMatrix));
@@ -499,24 +486,47 @@ function render(timestamp) {
             }
 
             // set lighting/texture uniforms per-frame
-            if (uLightEnabledLoc) gl.uniform1i(uLightEnabledLoc, sceneLightEnabled ? 1 : 0);
-            if (uLightPosLoc) gl.uniform3fv(uLightPosLoc, new Float32Array(sceneLightPos));
-            if (uLightColorLoc) gl.uniform3fv(uLightColorLoc, new Float32Array(sceneLightColor));
-            if (uLightIntensityLoc) gl.uniform1f(uLightIntensityLoc, sceneLightIntensity);
-            if (uAmbientLoc) gl.uniform1f(uAmbientLoc, sceneAmbient);
-            if (uDiffuseLoc) gl.uniform1f(uDiffuseLoc, sceneDiffuse);
-            if (uSpecularLoc) gl.uniform1f(uSpecularLoc, sceneSpecular);
-            if (uShininessLoc) gl.uniform1f(uShininessLoc, sceneShininess);
-
-            if (uUseTextureLoc) gl.uniform1i(uUseTextureLoc, sceneUseTexture ? 1 : 0);
-            if (uTexColor1Loc) gl.uniform3fv(uTexColor1Loc, new Float32Array(sceneTexColor1));
-            if (uTexColor2Loc) gl.uniform3fv(uTexColor2Loc, new Float32Array(sceneTexColor2));
-            if (uTexTilingLoc) gl.uniform1f(uTexTilingLoc, sceneTexTiling);
-            if (uTexMixLoc) gl.uniform1f(uTexMixLoc, sceneTexMix);
+            setSceneUniforms();
             var count = objectVertexCounts[i] || 0;
             if (count > 0) gl.drawArrays(gl.TRIANGLES, 0, count);
         }
     }
     
     requestAnimationFrame(render);
+}
+
+// Build the model matrix from current object transform state
+function buildModelMatrix() {
+    var S = scale(objScale, objScale, objScale);
+    var RX = rotateX(objRotateX);
+    var RY = rotateY(objRotateY);
+    var RZ = rotateZ(objRotateZ);
+    var T = translate(objTranslate[0], objTranslate[1], objTranslate[2]);
+    return mult(T, mult(RZ, mult(RY, mult(RX, S))));
+}
+
+// Set lighting & texture uniforms from scene state (call when program is active)
+function setSceneUniforms() {
+    if (uLightEnabledLoc) gl.uniform1i(uLightEnabledLoc, sceneLightEnabled ? 1 : 0);
+    if (uLightPosLoc) gl.uniform3fv(uLightPosLoc, new Float32Array(sceneLightPos));
+    if (uLightColorLoc) gl.uniform3fv(uLightColorLoc, new Float32Array(sceneLightColor));
+    if (uLightIntensityLoc) gl.uniform1f(uLightIntensityLoc, sceneLightIntensity);
+    if (uAmbientLoc) gl.uniform1f(uAmbientLoc, sceneAmbient);
+    if (uDiffuseLoc) gl.uniform1f(uDiffuseLoc, sceneDiffuse);
+    if (uSpecularLoc) gl.uniform1f(uSpecularLoc, sceneSpecular);
+    if (uShininessLoc) gl.uniform1f(uShininessLoc, sceneShininess);
+
+    if (uUseTextureLoc) gl.uniform1i(uUseTextureLoc, sceneUseTexture ? 1 : 0);
+    if (uTexColor1Loc) gl.uniform3fv(uTexColor1Loc, new Float32Array(sceneTexColor1));
+    if (uTexColor2Loc) gl.uniform3fv(uTexColor2Loc, new Float32Array(sceneTexColor2));
+    if (uTexTilingLoc) gl.uniform1f(uTexTilingLoc, sceneTexTiling);
+    if (uTexMixLoc) gl.uniform1f(uTexMixLoc, sceneTexMix);
+}
+
+// helper to bind a buffer to an attribute location and enable it
+function bindAttr(buffer, loc, size) {
+    if (!buffer || loc < 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(loc);
 }
