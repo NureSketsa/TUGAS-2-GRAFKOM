@@ -51,16 +51,12 @@ var sceneTexTiling = 8.0;
 var sceneTexMix = 0.5;
 
 function computeObjectCenter(objectIndex) {
-    if (!objectsData || !objectsData[objectIndex]) return vec3(0, 0, 0);
-    var points = objectsData[objectIndex].points;
-    var sum = vec3(0, 0, 0);
-    var count = 0;
-    for (var i = 0; i < points.length; i++) {
-        sum = add(sum, vec3(points[i][0], points[i][1], points[i][2]));
-        count++;
-    }
-    if (count === 0) return vec3(0, 0, 0);
-    return vec3(sum[0]/count, sum[1]/count, sum[2]/count);
+    if (!objectsData || !objectsData[objectIndex]) return vec3(0,0,0);
+    const pts = objectsData[objectIndex].points || [];
+    if (pts.length === 0) return vec3(0,0,0);
+    let sum = vec3(0,0,0);
+    for (const p of pts) sum = add(sum, vec3(p[0], p[1], p[2]));
+    return vec3(sum[0]/pts.length, sum[1]/pts.length, sum[2]/pts.length);
 }
 
 // Camera control variables
@@ -101,36 +97,21 @@ function loadOBJFile(filename) {
             console.log('Object data arrays:', objectsData);
             
             // colors based on part groups
-            var lightBlue = [0.6, 0.8, 1.0];
-            // make default grey very light for better similarity with real object
-            var grey = [0.95, 0.95, 0.95];
-            
-            // map colors to object indices
-            objectColors = [];
-            objectPickColors = [];
-            var lightBlueIndices = [13,14,15,16,17,19,20,21];
-            
-            for (var i = 0; i < objectsData.length; i++) {
-                objectVertexCounts[i] = objectsData[i].points.length;
-                // if index is in lightBlueIndices, use lightBlue, else grey
-                objectColors[i] = lightBlueIndices.includes(i) ? lightBlue : grey;
-                
-                // pick color encode index+1 into RGB
-                var id = i + 1; // 0 reserved for background
-                var r = id & 0xFF;
-                var g = (id >> 8) & 0xFF;
-                var b = (id >> 16) & 0xFF;
-                objectPickColors[i] = [r / 255.0, g / 255.0, b / 255.0];
-            }
+            const lightBlue = [0.6,0.8,1.0], grey = [0.95,0.95,0.95];
+            objectColors = []; objectPickColors = [];
+            const lightBlueIndices = [13,14,15,16,17,19,20,21];
 
-            // Compute wing rotation center from object 18
+            objectsData.forEach((obj,i)=>{
+                objectVertexCounts[i] = obj.points.length;
+                objectColors[i] = lightBlueIndices.includes(i) ? lightBlue : grey;
+                const id = i+1; // 0 reserved for background
+                const r = id & 0xFF, g = (id>>8)&0xFF, b = (id>>16)&0xFF;
+                objectPickColors[i] = [r/255, g/255, b/255];
+            });
+
+            // Compute wing rotation center from object 18 and total vertices
             wingCenter = computeObjectCenter(18);
-            
-            // total vertex count (for a quick check)
-            numVertices = 0;
-            for (var k = 0; k < objectVertexCounts.length; k++) {
-                numVertices += objectVertexCounts[k];
-            }
+            numVertices = objectVertexCounts.reduce((a,b)=>a+(b||0), 0);
 
             console.log('Loaded objects:', objectsData.length);
 
@@ -147,26 +128,18 @@ function setupBuffers() {
     // create position and normal buffers per object and upload data
     objectPositionBuffers = [];
     objectNormalBuffers = [];
-
-    for (var i = 0; i < objectsData.length; i++) {
-        // positions
-        var posBuf = gl.createBuffer();
+    objectsData.forEach((obj,i)=>{
+        const posBuf = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, flatten(objectsData[i].points), gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(obj.points), gl.STATIC_DRAW);
         objectPositionBuffers.push(posBuf);
 
-        // normals (may be missing) - fallback to zero normals
-        var norms = objectsData[i].normals || [];
-        if (!norms || norms.length === 0) {
-            // create zero normals
-            norms = [];
-            for (var k = 0; k < objectsData[i].points.length; k++) norms.push(vec3(0,0,1));
-        }
-        var normBuf = gl.createBuffer();
+        const norms = (obj.normals && obj.normals.length) ? obj.normals : obj.points.map(()=>vec3(0,0,1));
+        const normBuf = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, normBuf);
         gl.bufferData(gl.ARRAY_BUFFER, flatten(norms), gl.STATIC_DRAW);
         objectNormalBuffers.push(normBuf);
-    }
+    });
 
     // Uniform locations
     uColorLoc = gl.getUniformLocation(program, "uColor");
@@ -253,7 +226,7 @@ function pickAt(x, y) {
     }
 
     // read pixel
-    var pixels = new Uint8Array(4);
+    const pixels = new Uint8Array(4);
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
     // unbind framebuffer
@@ -261,23 +234,17 @@ function pickAt(x, y) {
     gl.useProgram(program);
 
     // decode id (we encoded id = r + g<<8 + b<<16) and subtract 1
-    var id = pixels[0] + (pixels[1] << 8) + (pixels[2] << 16);
-    if (id === 0) return -1;
-    return id - 1;
+    const id = pixels[0] + (pixels[1] << 8) + (pixels[2] << 16);
+    return (id === 0) ? -1 : id - 1;
 }
 
 function updateCamera() {
-    var eye = vec3(
+    const eye = add(vec3(
         cameraDistance * Math.sin(cameraRotationY) * Math.cos(cameraRotationX),
         cameraDistance * Math.sin(cameraRotationX),
         cameraDistance * Math.cos(cameraRotationY) * Math.cos(cameraRotationX)
-    );
-    
-    eye = add(eye, cameraPosition);
-    
-    var at = cameraPosition;
-    var up = vec3(0, 1, 0);
-    
+    ), cameraPosition);
+    const at = cameraPosition, up = vec3(0,1,0);
     modelViewMatrix = lookAt(eye, at, up);
     gl.uniformMatrix4fv(modelViewMatrixLoc, false, flatten(modelViewMatrix));
 }
@@ -309,7 +276,7 @@ window.onload = function init() {
     gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
     // small DOM helper to shorten repetitive calls
-    var G = function(id){ return document.getElementById(id); };
+    const G = id => document.getElementById(id);
 
     // init pick shader program
     pickProgram = initShaders(gl, "pick-vertex-shader", "pick-fragment-shader");
@@ -327,19 +294,19 @@ window.onload = function init() {
     // Combined mouse handler: dragging rotates camera; otherwise, debug hover triggers picking
     canvas.addEventListener('mousedown', function(e){ isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; });
     canvas.addEventListener('mouseup', function(){ isDragging = false; });
-    canvas.addEventListener('mousemove', function(e){
-        var rect = canvas.getBoundingClientRect();
-        var x = Math.floor(e.clientX - rect.left), y = Math.floor(e.clientY - rect.top);
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor(e.clientX - rect.left), y = Math.floor(e.clientY - rect.top);
         if (isDragging) {
-            var dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
+            const dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
             cameraRotationY += dx * 0.01; cameraRotationX += dy * 0.01;
             cameraRotationX = Math.max(Math.min(cameraRotationX, Math.PI/2), -Math.PI/2);
             lastMouseX = e.clientX; lastMouseY = e.clientY;
         } else {
-            var debugOn = G('debugToggle') && G('debugToggle').checked;
+            const debugOn = G('debugToggle') && G('debugToggle').checked;
             if (!debugOn) return;
-            var readY = rect.height - y - 1;
-            var idx = pickAt(x, readY);
+            const readY = rect.height - y - 1;
+            const idx = pickAt(x, readY);
             debugInfoDiv.textContent = (idx === null || idx < 0) ? 'No object under cursor' : ('Object ' + idx + ': ' + ((objectsData[idx] && objectsData[idx].name) || ('object' + idx)));
         }
     });
