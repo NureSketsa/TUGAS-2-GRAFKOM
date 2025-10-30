@@ -65,8 +65,8 @@ function computeObjectCenter(objectIndex) {
 // Camera control variables
 var cameraRotationX = 0;
 var cameraRotationY = 0;
-var cameraDistance = 200;
-var cameraPosition = vec3(0, 0, 0);
+var cameraDistance = 100;
+var cameraPosition = vec3(0, 10, 0);
 
 // Mouse interaction
 var isDragging = false;
@@ -78,10 +78,10 @@ var objData = null;
 var numVertices = 0;
 // Object transform state
 var objTranslate = vec3(0, 0, 0);
-var objRotateX = 0; // degrees
-var objRotateY = 0;
+var objRotateX = -90; // degrees
+var objRotateY = 180;
 var objRotateZ = 0;
-var objScale = 0.1;
+var objScale = 1.0;
 
 function loadOBJFile(filename) {
     console.log('Loading OBJ file:', filename);
