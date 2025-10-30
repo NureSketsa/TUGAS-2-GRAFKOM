@@ -317,57 +317,33 @@ window.onload = function init() {
     projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 1000);
     gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
+    // small DOM helper to shorten repetitive calls
+    var G = function(id){ return document.getElementById(id); };
+
     // init pick shader program
     pickProgram = initShaders(gl, "pick-vertex-shader", "pick-fragment-shader");
     // prepare picking framebuffer/texture
     createPickingFramebuffer(canvas.width, canvas.height);
 
-    debugInfoDiv = document.getElementById('debugInfo');
+    debugInfoDiv = G('debugInfo');
 
-    // mousemove for picking (hover)
-    canvas.addEventListener('mousemove', function(e) {
-        var debugOn = document.getElementById('debugToggle') && document.getElementById('debugToggle').checked;
-        if (!debugOn) return;
-        if (isDragging) return; // don't pick while dragging
+    // Combined mouse handler: dragging rotates camera; otherwise, debug hover triggers picking
+    canvas.addEventListener('mousedown', function(e){ isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; });
+    canvas.addEventListener('mouseup', function(){ isDragging = false; });
+    canvas.addEventListener('mousemove', function(e){
         var rect = canvas.getBoundingClientRect();
-        var x = Math.floor(e.clientX - rect.left);
-        var y = Math.floor(e.clientY - rect.top);
-        // flip y for WebGL readPixels
-        var readY = rect.height - y - 1;
-        var idx = pickAt(x, readY);
-        if (idx === null || idx < 0) {
-            debugInfoDiv.textContent = 'No object under cursor';
-        } else {
-            var name = (objectsData[idx] && objectsData[idx].name) ? objectsData[idx].name : ('object' + idx);
-            debugInfoDiv.textContent = 'Object ' + idx + ': ' + name;
-        }
-    });
-
-    // Mouse events for rotation
-    canvas.addEventListener("mousedown", function(e) {
-        isDragging = true;
-        lastMouseX = e.clientX;
-        lastMouseY = e.clientY;
-    });
-
-    canvas.addEventListener("mouseup", function() {
-        isDragging = false;
-    });
-
-    canvas.addEventListener("mousemove", function(e) {
+        var x = Math.floor(e.clientX - rect.left), y = Math.floor(e.clientY - rect.top);
         if (isDragging) {
-            var deltaX = e.clientX - lastMouseX;
-            var deltaY = e.clientY - lastMouseY;
-            
-            cameraRotationY += deltaX * 0.01;
-            cameraRotationX += deltaY * 0.01;
-            
-            // Limit vertical rotation
-            if (cameraRotationX > Math.PI / 2) cameraRotationX = Math.PI / 2;
-            if (cameraRotationX < -Math.PI / 2) cameraRotationX = -Math.PI / 2;
-            
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
+            var dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
+            cameraRotationY += dx * 0.01; cameraRotationX += dy * 0.01;
+            cameraRotationX = Math.max(Math.min(cameraRotationX, Math.PI/2), -Math.PI/2);
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+        } else {
+            var debugOn = G('debugToggle') && G('debugToggle').checked;
+            if (!debugOn) return;
+            var readY = rect.height - y - 1;
+            var idx = pickAt(x, readY);
+            debugInfoDiv.textContent = (idx === null || idx < 0) ? 'No object under cursor' : ('Object ' + idx + ': ' + ((objectsData[idx] && objectsData[idx].name) || ('object' + idx)));
         }
     });
 
@@ -379,62 +355,24 @@ window.onload = function init() {
         if (cameraDistance > 500) cameraDistance = 500;
     });
 
-    // Slider controls
-    document.getElementById("sliderRotateX").oninput = function(e) {
-        cameraRotationX = parseFloat(e.target.value) * Math.PI / 180;
-    };
+    // Short binding helper and compact control wiring
+    var bind = function(id, ev, fn){ var el = G(id); if(!el) return el; if(ev === 'input') el.oninput = fn; else el.onchange = fn; return el; };
 
-    document.getElementById("sliderRotateY").oninput = function(e) {
-        cameraRotationY = parseFloat(e.target.value) * Math.PI / 180;
-    };
+    bind('sliderRotateX','input', e => cameraRotationX = parseFloat(e.target.value) * Math.PI / 180);
+    bind('sliderRotateY','input', e => cameraRotationY = parseFloat(e.target.value) * Math.PI / 180);
+    bind('sliderZoom','input', e => cameraDistance = parseFloat(e.target.value));
 
-    document.getElementById("sliderZoom").oninput = function(e) {
-        cameraDistance = parseFloat(e.target.value);
-    };
+    bind('objTranslateX','input', e => objTranslate[0] = parseFloat(e.target.value));
+    bind('objTranslateY','input', e => objTranslate[1] = parseFloat(e.target.value));
+    bind('objTranslateZ','input', e => objTranslate[2] = parseFloat(e.target.value));
+    bind('objRotateX','input', e => objRotateX = parseFloat(e.target.value));
+    bind('objRotateY','input', e => objRotateY = parseFloat(e.target.value));
+    bind('objRotateZ','input', e => objRotateZ = parseFloat(e.target.value));
+    bind('objScale','input', e => objScale = parseFloat(e.target.value));
 
-    // Object control sliders
-    document.getElementById("objTranslateX").oninput = function(e) {
-        objTranslate[0] = parseFloat(e.target.value);
-    };
-    document.getElementById("objTranslateY").oninput = function(e) {
-        objTranslate[1] = parseFloat(e.target.value);
-    };
-    document.getElementById("objTranslateZ").oninput = function(e) {
-        objTranslate[2] = parseFloat(e.target.value);
-    };
-
-    document.getElementById("objRotateX").oninput = function(e) {
-        objRotateX = parseFloat(e.target.value);
-    };
-    document.getElementById("objRotateY").oninput = function(e) {
-        objRotateY = parseFloat(e.target.value);
-    };
-    document.getElementById("objRotateZ").oninput = function(e) {
-        objRotateZ = parseFloat(e.target.value);
-    };
-
-    document.getElementById("objScale").oninput = function(e) {
-        objScale = parseFloat(e.target.value);
-    };
-
-    // Wing rotation controls
-    document.getElementById("wingRotateToggle").onchange = function(e) {
-        isWingRotating = e.target.checked;
-        // Reset time when starting animation
-        if (isWingRotating) lastFrameTime = performance.now();
-        // Enable/disable manual control based on animation state
-        document.getElementById("wingRotateAngle").disabled = isWingRotating;
-    };
-
-    document.getElementById("wingRotateSpeed").oninput = function(e) {
-        wingRotateSpeed = parseFloat(e.target.value);
-    };
-
-    document.getElementById("wingRotateAngle").oninput = function(e) {
-        if (!isWingRotating) {  // only allow manual control when not animating
-            wingRotationAngle = parseFloat(e.target.value);
-        }
-    };
+    bind('wingRotateToggle','change', e => { isWingRotating = e.target.checked; if(isWingRotating) lastFrameTime = performance.now(); var wa = G('wingRotateAngle'); if(wa) wa.disabled = isWingRotating; });
+    bind('wingRotateSpeed','input', e => wingRotateSpeed = parseFloat(e.target.value));
+    bind('wingRotateAngle','input', e => { if(!isWingRotating) wingRotationAngle = parseFloat(e.target.value); });
 
     // Lighting & texture controls wiring
     var lightToggle = document.getElementById('lightToggle');
@@ -455,11 +393,8 @@ window.onload = function init() {
     var texMix = document.getElementById('texMix');
 
     function colorHexToVec3(hex) {
-        var c = hex.replace('#','');
-        var r = parseInt(c.substring(0,2),16)/255; 
-        var g = parseInt(c.substring(2,4),16)/255; 
-        var b = parseInt(c.substring(4,6),16)/255; 
-        return [r,g,b];
+        hex = hex.replace('#','');
+        return [parseInt(hex.slice(0,2),16)/255, parseInt(hex.slice(2,4),16)/255, parseInt(hex.slice(4,6),16)/255];
     }
 
     // initialize scene vars from controls
