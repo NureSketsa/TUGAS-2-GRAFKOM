@@ -5,7 +5,7 @@ var modelViewMatrix, projectionMatrix;
 var modelViewMatrixLoc, projectionMatrixLoc;
 var modelMatrix, modelMatrixLoc;
 var pointsArray = [];
-var objectsData = []; // array of {name, points}
+var objectsData = [];
 var objectBuffers = [];
 var objectPositionBuffers = [];
 var objectNormalBuffers = [];
@@ -13,7 +13,7 @@ var objectVertexCounts = [];
 var objectColors = [];
 var uColorLoc;
 var normalMatrixLoc = null;
-// lighting/texture uniform locations
+
 var uLightEnabledLoc, uLightPosLoc, uLightColorLoc, uLightIntensityLoc;
 var uAmbientLoc, uDiffuseLoc, uSpecularLoc, uShininessLoc;
 var uUseTextureLoc, uTexColor1Loc, uTexColor2Loc, uTexTilingLoc, uTexMixLoc;
@@ -24,17 +24,8 @@ var pickTexture = null;
 var pickDepthBuffer = null;
 var pickLocations = {};
 var debugInfoDiv = null;
-var vPositionLoc = -1, vNormalLoc = -1; // cached attribute locations for main program
+var vPositionLoc = -1, vNormalLoc = -1;
 
-// Wing rotation state
-var wingRotationAngle = 0;
-var wingRotateSpeed = 90;  // degrees per second
-var isWingRotating = false;
-var lastFrameTime = 0;
-var wingCenter = vec3(0, 0, 0);  // will be computed from obj 18
-var wingObjects = [19, 20, 21];  // wing object indices
-
-// scene lighting / texture state (JS side)
 var sceneLightEnabled = true;
 var sceneLightColor = [1.0, 1.0, 1.0];
 var sceneLightPos = vec3(50, 200, 100);
@@ -44,11 +35,38 @@ var sceneDiffuse = 1.0;
 var sceneSpecular = 0.5;
 var sceneShininess = 32.0;
 
+// Putaran baling
+var wingRotationAngle = 0;
+var wingRotateSpeed = 90;
+var isWingRotating = false;
+var lastFrameTime = 0;
+var wingCenter = vec3(0, 0, 0);
+var wingObjects = [19, 20, 21];
+
 var sceneUseTexture = false;
 var sceneTexColor1 = [1.0, 1.0, 1.0];
 var sceneTexColor2 = [0.82, 0.82, 0.82];
 var sceneTexTiling = 8.0;
 var sceneTexMix = 0.5;
+
+// Camera
+var cameraRotationX = 0;
+var cameraRotationY = 0;
+var cameraDistance = 100;
+var cameraPosition = vec3(0, 10, 0);
+
+// Mouse
+var isDragging = false;
+var lastMouseX = 0;
+var lastMouseY = 0;
+
+var objData = null;
+var numVertices = 0;
+var objTranslate = vec3(0, 0, 0);
+var objRotateX = -90;
+var objRotateY = 180;
+var objRotateZ = 0;
+var objScale = 1.0;
 
 function computeObjectCenter(objectIndex) {
     if (!objectsData || !objectsData[objectIndex]) return vec3(0,0,0);
@@ -58,27 +76,6 @@ function computeObjectCenter(objectIndex) {
     for (const p of pts) sum = add(sum, vec3(p[0], p[1], p[2]));
     return vec3(sum[0]/pts.length, sum[1]/pts.length, sum[2]/pts.length);
 }
-
-// Camera control variables
-var cameraRotationX = 0;
-var cameraRotationY = 0;
-var cameraDistance = 100;
-var cameraPosition = vec3(0, 10, 0);
-
-// Mouse interaction
-var isDragging = false;
-var lastMouseX = 0;
-var lastMouseY = 0;
-
-// OBJ data
-var objData = null;
-var numVertices = 0;
-// Object transform state
-var objTranslate = vec3(0, 0, 0);
-var objRotateX = -90; // degrees
-var objRotateY = 180;
-var objRotateZ = 0;
-var objScale = 1.0;
 
 function loadOBJFile(filename) {
     console.log('Loading OBJ file:', filename);
@@ -91,12 +88,10 @@ function loadOBJFile(filename) {
             console.log('OBJ file content length:', text.length);
             objData = parseOBJ(text);
             console.log('Parsed OBJ data:', objData);
-            objData = scaleOBJ(objData, 0.1, 0.1, 0.1); // Scale down
-            // build per-object points arrays
+            objData = scaleOBJ(objData, 0.1, 0.1, 0.1);
             objectsData = objToObjectsPointsArray(objData);
             console.log('Object data arrays:', objectsData);
             
-            // colors based on part groups
             const lightBlue = [0.6,0.8,1.0], grey = [0.95,0.95,0.95];
             objectColors = []; objectPickColors = [];
             const lightBlueIndices = [13,14,15,16,17,19,20,21];
@@ -104,12 +99,11 @@ function loadOBJFile(filename) {
             objectsData.forEach((obj,i)=>{
                 objectVertexCounts[i] = obj.points.length;
                 objectColors[i] = lightBlueIndices.includes(i) ? lightBlue : grey;
-                const id = i+1; // 0 reserved for background
+                const id = i+1;
                 const r = id & 0xFF, g = (id>>8)&0xFF, b = (id>>16)&0xFF;
                 objectPickColors[i] = [r/255, g/255, b/255];
             });
 
-            // Compute wing rotation center from object 18 and total vertices
             wingCenter = computeObjectCenter(18);
             numVertices = objectVertexCounts.reduce((a,b)=>a+(b||0), 0);
 
@@ -125,7 +119,6 @@ function loadOBJFile(filename) {
 }
 
 function setupBuffers() {
-    // create position and normal buffers per object and upload data
     objectPositionBuffers = [];
     objectNormalBuffers = [];
     objectsData.forEach((obj,i)=>{
@@ -141,10 +134,8 @@ function setupBuffers() {
         objectNormalBuffers.push(normBuf);
     });
 
-    // Uniform locations
     uColorLoc = gl.getUniformLocation(program, "uColor");
     normalMatrixLoc = gl.getUniformLocation(program, "normalMatrix");
-    // lighting uniforms
     uLightEnabledLoc = gl.getUniformLocation(program, 'uLightEnabled');
     uLightPosLoc = gl.getUniformLocation(program, 'uLightPos');
     uLightColorLoc = gl.getUniformLocation(program, 'uLightColor');
@@ -153,31 +144,26 @@ function setupBuffers() {
     uDiffuseLoc = gl.getUniformLocation(program, 'uDiffuseFactor');
     uSpecularLoc = gl.getUniformLocation(program, 'uSpecularFactor');
     uShininessLoc = gl.getUniformLocation(program, 'uShininess');
-    // texture uniforms
     uUseTextureLoc = gl.getUniformLocation(program, 'uUseTexture');
     uTexColor1Loc = gl.getUniformLocation(program, 'uTexColor1');
     uTexColor2Loc = gl.getUniformLocation(program, 'uTexColor2');
     uTexTilingLoc = gl.getUniformLocation(program, 'uTexTiling');
     uTexMixLoc = gl.getUniformLocation(program, 'uTexMix');
 
-    // make pick code still work using position buffers reference
     objectBuffers = objectPositionBuffers.slice();
 }
 
 function createPickingFramebuffer(width, height) {
-    // create texture
     pickTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, pickTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-    // create renderbuffer for depth
     pickDepthBuffer = gl.createRenderbuffer();
     gl.bindRenderbuffer(gl.RENDERBUFFER, pickDepthBuffer);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, width, height);
 
-    // create framebuffer
     pickFramebuffer = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTexture, 0);
@@ -188,7 +174,6 @@ function createPickingFramebuffer(width, height) {
         console.warn('Picking framebuffer incomplete: ' + status);
     }
 
-    // unbind
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -196,12 +181,9 @@ function createPickingFramebuffer(width, height) {
 
 function pickAt(x, y) {
     if (!pickProgram || !pickFramebuffer) return null;
-    // ensure camera/model matrices are up-to-date
     updateCamera();
-    // Build model matrix from object transform state used for picking
     modelMatrix = buildModelMatrix();
 
-    // bind framebuffer and viewport, clear
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0,0,0,0);
@@ -209,11 +191,9 @@ function pickAt(x, y) {
 
     gl.useProgram(pickProgram);
 
-    // set projection and modelView into pick program (cached locations)
     if (pickLocations.modelViewMatrix) gl.uniformMatrix4fv(pickLocations.modelViewMatrix, false, flatten(modelViewMatrix));
     if (pickLocations.projectionMatrix) gl.uniformMatrix4fv(pickLocations.projectionMatrix, false, flatten(projectionMatrix));
 
-    // draw each object with its pick color
     for (var i = 0; i < objectBuffers.length; i++) {
         bindAttr(objectBuffers[i], pickLocations.aPosition, 4);
 
@@ -225,15 +205,12 @@ function pickAt(x, y) {
         if (count > 0) gl.drawArrays(gl.TRIANGLES, 0, count);
     }
 
-    // read pixel
     const pixels = new Uint8Array(4);
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-    // unbind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(program);
 
-    // decode id (we encoded id = r + g<<8 + b<<16) and subtract 1
     const id = pixels[0] + (pixels[1] << 8) + (pixels[2] << 16);
     return (id === 0) ? -1 : id - 1;
 }
@@ -264,7 +241,6 @@ window.onload = function init() {
     program = initShaders(gl, "vertex-shader", "fragment-shader");
     gl.useProgram(program);
 
-    // cache frequently-used attribute locations
     vPositionLoc = gl.getAttribLocation(program, "aPosition");
     vNormalLoc = gl.getAttribLocation(program, "aNormal");
 
@@ -275,18 +251,14 @@ window.onload = function init() {
     projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 1000);
     gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
-    // small DOM helper to shorten repetitive calls
     const G = id => document.getElementById(id);
 
-    // init pick shader program
     pickProgram = initShaders(gl, "pick-vertex-shader", "pick-fragment-shader");
-    // cache pick program uniform/attrib locations to avoid repeated lookups
     pickLocations.modelViewMatrix = gl.getUniformLocation(pickProgram, 'modelViewMatrix');
     pickLocations.projectionMatrix = gl.getUniformLocation(pickProgram, 'projectionMatrix');
     pickLocations.modelMatrix = gl.getUniformLocation(pickProgram, 'modelMatrix');
     pickLocations.uColor = gl.getUniformLocation(pickProgram, 'uColor');
     pickLocations.aPosition = gl.getAttribLocation(pickProgram, 'aPosition');
-    // prepare picking framebuffer/texture
     createPickingFramebuffer(canvas.width, canvas.height);
 
     debugInfoDiv = G('debugInfo');
@@ -311,7 +283,6 @@ window.onload = function init() {
         }
     });
 
-    // Mouse wheel for zoom
     canvas.addEventListener("wheel", function(e) {
         e.preventDefault();
         cameraDistance += e.deltaY * 0.1;
@@ -319,7 +290,6 @@ window.onload = function init() {
         if (cameraDistance > 500) cameraDistance = 500;
     });
 
-    // Short binding helper and compact control wiring
     var bind = function(id, ev, fn){ var el = G(id); if(!el) return el; if(ev === 'input') el.oninput = fn; else el.onchange = fn; return el; };
 
     bind('sliderRotateX','input', e => cameraRotationX = parseFloat(e.target.value) * Math.PI / 180);
@@ -338,7 +308,6 @@ window.onload = function init() {
     bind('wingRotateSpeed','input', e => wingRotateSpeed = parseFloat(e.target.value));
     bind('wingRotateAngle','input', e => { if(!isWingRotating) wingRotationAngle = parseFloat(e.target.value); });
 
-    // Lighting & texture controls wiring
     var lightToggle = document.getElementById('lightToggle');
     var lightColorInput = document.getElementById('lightColor');
     var lightPosX = document.getElementById('lightPosX');
@@ -361,7 +330,6 @@ window.onload = function init() {
         return [parseInt(hex.slice(0,2),16)/255, parseInt(hex.slice(2,4),16)/255, parseInt(hex.slice(4,6),16)/255];
     }
 
-    // initialize scene vars from controls
     sceneLightEnabled = lightToggle.checked;
     sceneLightColor = colorHexToVec3(lightColorInput.value);
     sceneLightPos = vec3(parseFloat(lightPosX.value), parseFloat(lightPosY.value), parseFloat(lightPosZ.value));
@@ -377,7 +345,6 @@ window.onload = function init() {
     sceneTexTiling = parseFloat(texTiling.value);
     sceneTexMix = parseFloat(texMix.value);
 
-    // update JS state on input changes
     lightToggle.onchange = function(e){ sceneLightEnabled = e.target.checked; };
     lightColorInput.oninput = function(e){ sceneLightColor = colorHexToVec3(e.target.value); };
     lightPosX.oninput = lightPosY.oninput = lightPosZ.oninput = function(){
@@ -395,8 +362,7 @@ window.onload = function init() {
     texTiling.oninput = function(e){ sceneTexTiling = parseFloat(e.target.value); };
     texMix.oninput = function(e){ sceneTexMix = parseFloat(e.target.value); };
 
-    // Load the OBJ file
-    loadOBJFile('./fan.obj'); // Use explicit relative path
+    loadOBJFile('./fan.obj');
 };
 
 function render(timestamp) {
@@ -405,54 +371,43 @@ function render(timestamp) {
     if (numVertices > 0) {
         updateCamera();
 
-        // Update wing rotation if animation is on
         if (isWingRotating && lastFrameTime) {
-            var deltaTime = (timestamp - lastFrameTime) / 1000.0; // seconds
+            var deltaTime = (timestamp - lastFrameTime) / 1000.0;
             wingRotationAngle += wingRotateSpeed * deltaTime;
         }
         lastFrameTime = timestamp;
 
-    // Build base model matrix from object transform state
     var baseModel = buildModelMatrix();
 
-        // Draw each object
+        // Gambar tiap obj
         var vPosition = gl.getAttribLocation(program, "aPosition");
         var vNormal = gl.getAttribLocation(program, "aNormal");
         for (var i = 0; i < objectPositionBuffers.length; i++) {
-                // bind position/normal using cached attribute locations
                 bindAttr(objectPositionBuffers[i], vPositionLoc, 4);
                 bindAttr(objectNormalBuffers[i], vNormalLoc, 3);
 
             var objMatrix = baseModel;
             
-            // If this is a wing object, apply additional rotation around wingCenter
             if (wingObjects.includes(i)) {
-                // 1. Translate to origin
                 var negCenter = translate(-wingCenter[0], -wingCenter[1], -wingCenter[2]);
-                // 2. Rotate
                 var wingRot = rotateY(wingRotationAngle);
-                // 3. Translate back
                 var posCenter = translate(wingCenter[0], wingCenter[1], wingCenter[2]);
                 
-                // Combine: modelMatrix * (posCenter * wingRot * negCenter)
                 var wingTransform = mult(posCenter, mult(wingRot, negCenter));
                 objMatrix = mult(baseModel, wingTransform);
             }
 
             if (modelMatrixLoc) gl.uniformMatrix4fv(modelMatrixLoc, false, flatten(objMatrix));
 
-            // compute and set normal matrix
             if (normalMatrixLoc) {
                 var nm = normalMatrix(mult(modelViewMatrix, objMatrix));
                 gl.uniformMatrix3fv(normalMatrixLoc, false, flatten(nm));
             }
 
-            // set color
             if (uColorLoc && objectColors[i]) {
                 gl.uniform3fv(uColorLoc, new Float32Array(objectColors[i]));
             }
 
-            // set lighting/texture uniforms per-frame
             setSceneUniforms();
             var count = objectVertexCounts[i] || 0;
             if (count > 0) gl.drawArrays(gl.TRIANGLES, 0, count);
@@ -462,7 +417,7 @@ function render(timestamp) {
     requestAnimationFrame(render);
 }
 
-// Build the model matrix from current object transform state
+// Buat model matrix
 function buildModelMatrix() {
     var S = scale(objScale, objScale, objScale);
     var RX = rotateX(objRotateX);
@@ -472,7 +427,7 @@ function buildModelMatrix() {
     return mult(T, mult(RZ, mult(RY, mult(RX, S))));
 }
 
-// Set lighting & texture uniforms from scene state (call when program is active)
+// Set lighting & texture
 function setSceneUniforms() {
     if (uLightEnabledLoc) gl.uniform1i(uLightEnabledLoc, sceneLightEnabled ? 1 : 0);
     if (uLightPosLoc) gl.uniform3fv(uLightPosLoc, new Float32Array(sceneLightPos));
@@ -490,7 +445,6 @@ function setSceneUniforms() {
     if (uTexMixLoc) gl.uniform1f(uTexMixLoc, sceneTexMix);
 }
 
-// helper to bind a buffer to an attribute location and enable it
 function bindAttr(buffer, loc, size) {
     if (!buffer || loc < 0) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
