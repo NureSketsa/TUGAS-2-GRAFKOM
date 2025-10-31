@@ -376,7 +376,24 @@ window.onload = function init() {
                 reader.readAsDataURL(f);
             });
         }
+        var resetButton = document.createElement('button');
+        resetButton.textContent = 'Reset to Checker';
+        resetButton.style.marginLeft = '8px';
+        resetButton.style.padding = '4px 8px';
+        texControlsGroup.appendChild(resetButton);
+
+        resetButton.addEventListener('click', function() {
+            if (sceneTexture) {
+                gl.deleteTexture(sceneTexture);
+                sceneTexture = null;
+            }
+            sceneUseImageTexture = false;
+            sceneUseTexture = true;
+            if (texToggle) texToggle.checked = true;
+            console.log('Texture reset to procedural checker');
+        });
     })();
+
 
     function colorHexToVec3(hex) {
         hex = hex.replace('#','');
