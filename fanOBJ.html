@@ -340,8 +340,10 @@
     uniform float uSpecularFactor;
     uniform float uShininess;
 
-    // texture (procedural checker)
+    // texture (procedural checker or uploaded image)
     uniform bool uUseTexture;
+    uniform bool uUseImageTexture; // when true, sample image texture instead of procedural
+    uniform sampler2D uSampler;
     uniform vec3 uTexColor1;
     uniform vec3 uTexColor2;
     uniform float uTexTiling;
@@ -377,7 +379,13 @@
 
         vec3 baseColor = result;
         if (uUseTexture) {
-            vec3 tex = computeChecker(vPosition);
+            vec3 tex;
+            if (uUseImageTexture) {
+                vec2 uv = vPosition.xz * uTexTiling;
+                tex = texture(uSampler, uv).rgb;
+            } else {
+                tex = computeChecker(vPosition);
+            }
             baseColor = mix(baseColor, tex, uTexMix);
         }
 

@@ -17,6 +17,9 @@ var normalMatrixLoc = null;
 var uLightEnabledLoc, uLightPosLoc, uLightColorLoc, uLightIntensityLoc;
 var uAmbientLoc, uDiffuseLoc, uSpecularLoc, uShininessLoc;
 var uUseTextureLoc, uTexColor1Loc, uTexColor2Loc, uTexTilingLoc, uTexMixLoc;
+var uUseImageTextureLoc = null, uSamplerLoc = null;
+var sceneTexture = null;
+var sceneUseImageTexture = false;
 var objectPickColors = [];
 var pickProgram = null;
 var pickFramebuffer = null;
@@ -155,6 +158,8 @@ function setupBuffers() {
     uShininessLoc = gl.getUniformLocation(program, 'uShininess');
     // texture uniforms
     uUseTextureLoc = gl.getUniformLocation(program, 'uUseTexture');
+    uUseImageTextureLoc = gl.getUniformLocation(program, 'uUseImageTexture');
+    uSamplerLoc = gl.getUniformLocation(program, 'uSampler');
     uTexColor1Loc = gl.getUniformLocation(program, 'uTexColor1');
     uTexColor2Loc = gl.getUniformLocation(program, 'uTexColor2');
     uTexTilingLoc = gl.getUniformLocation(program, 'uTexTiling');
@@ -356,6 +361,54 @@ window.onload = function init() {
     var texTiling = document.getElementById('texTiling');
     var texMix = document.getElementById('texMix');
 
+    // add a file input for uploading an image texture (insert near texture controls)
+    (function(){
+        var texControlsGroup = texToggle && texToggle.parentNode;
+        if (texControlsGroup) {
+            var fileLabel = document.createElement('label');
+            fileLabel.textContent = 'Upload Texture Image:';
+            fileLabel.style.display = 'inline-block';
+            fileLabel.style.width = '150px';
+            var fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.id = 'texFile';
+            fileInput.style.display = 'inline-block';
+            fileInput.style.marginLeft = '4px';
+            texControlsGroup.appendChild(document.createElement('br'));
+            texControlsGroup.appendChild(fileLabel);
+            texControlsGroup.appendChild(fileInput);
+
+            fileInput.addEventListener('change', function(e){
+                var f = e.target.files && e.target.files[0];
+                if (!f) return;
+                var reader = new FileReader();
+                reader.onload = function(evt){
+                    var img = new Image();
+                    img.onload = function(){
+                        // create or replace GL texture
+                        if (sceneTexture) { gl.deleteTexture(sceneTexture); sceneTexture = null; }
+                        sceneTexture = gl.createTexture();
+                        gl.bindTexture(gl.TEXTURE_2D, sceneTexture);
+                        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+                        gl.generateMipmap(gl.TEXTURE_2D);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                        gl.bindTexture(gl.TEXTURE_2D, null);
+
+                        // enable texture use
+                        sceneUseImageTexture = true;
+                        if (texToggle) texToggle.checked = true;
+                        sceneUseTexture = true;
+                    };
+                    img.src = evt.target.result;
+                };
+                reader.readAsDataURL(f);
+            });
+        }
+    })();
+
     function colorHexToVec3(hex) {
         hex = hex.replace('#','');
         return [parseInt(hex.slice(0,2),16)/255, parseInt(hex.slice(2,4),16)/255, parseInt(hex.slice(4,6),16)/255];
@@ -484,6 +537,17 @@ function setSceneUniforms() {
     if (uShininessLoc) gl.uniform1f(uShininessLoc, sceneShininess);
 
     if (uUseTextureLoc) gl.uniform1i(uUseTextureLoc, sceneUseTexture ? 1 : 0);
+    if (uUseImageTextureLoc) gl.uniform1i(uUseImageTextureLoc, sceneUseImageTexture ? 1 : 0);
+    // bind uploaded image texture to unit 0 when available
+    if (uSamplerLoc) {
+        gl.activeTexture(gl.TEXTURE0);
+        if (sceneUseImageTexture && sceneTexture) {
+            gl.bindTexture(gl.TEXTURE_2D, sceneTexture);
+        } else {
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+        gl.uniform1i(uSamplerLoc, 0);
+    }
     if (uTexColor1Loc) gl.uniform3fv(uTexColor1Loc, new Float32Array(sceneTexColor1));
     if (uTexColor2Loc) gl.uniform3fv(uTexColor2Loc, new Float32Array(sceneTexColor2));
     if (uTexTilingLoc) gl.uniform1f(uTexTilingLoc, sceneTexTiling);
