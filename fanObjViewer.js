@@ -209,7 +209,7 @@ function pickAt(x, y) {
         var count = objectVertexCounts[i] || 0;
         if (count > 0) gl.drawArrays(gl.TRIANGLES, 0, count);
     }
-
+// test
     const pixels = new Uint8Array(4);
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
